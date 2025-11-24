@@ -11,8 +11,7 @@ const PORT = 8787;                                    // puerto local proxy
 const UPSTREAM_TIMEOUT_MS = 300_000;                  // 5 min
 // ================
 
-// Inicializar Supabase
-const supabase = createClient(
+// Comprobar que las variables de entorno para n8n existen
 if (!process.env.N8N_CHAT_WEBHOOK || !process.env.N8N_PDF_WEBHOOK) {
   console.error("ERROR: Faltan variables de entorno críticas (N8N_CHAT_WEBHOOK, N8N_PDF_WEBHOOK).");
   process.exit(1);
