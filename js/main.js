@@ -2,7 +2,7 @@ import { CONFIG } from './config.js';
 import { state } from './state.js';
 import { elements } from './dom.js';
 import * as ui from './ui.js';
-import * as api from '../api.js';
+import * as api from '../api/api.js';
 
 async function initializeApp() {
   console.log('Alex MVP inicializado', { userId: state.userId, sessionId: state.sessionId });
