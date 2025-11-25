@@ -5,9 +5,9 @@ import * as ui from './ui.js';
 import * as api from '../api/api.js';
 
 async function initializeApp() {
-  console.log('Alex MVP inicializado', { userId: state.userId, sessionId: state.sessionId });
-  const connected = await api.checkConnection();
-  ui.setConnectionStatus(connected, connected ? 'Conectado' : 'Error de conexión');
+	console.log("Alex MVP inicializado", { userId: state.userId, sessionId: state.sessionId });
+	const connected = await api.checkConnection();
+	ui.setConnectionStatus(connected, connected ? "Conectado" : "Error de conexión");
 }
 
 function startConversation() {
@@ -37,18 +37,19 @@ function sendMessage() {
 
 async function handleMessageProcessing(message) {
   ui.showTyping();
-  const isGeneratingPlan = message.toLowerCase().includes("generar plan completo");
+	const isGeneratingPlan = message.toLowerCase().includes("generar plan completo");
 
   try {
     const data = await api.postMessage(message);
     ui.hideTyping();
     handleResponse(data);
 
-    // Verificamos si n8n ya nos mandó el PDF directamente para NO activar el polling.
-    const pdfAlreadyArrived = data.pdfGenerated === true || (data.pdfUrl && data.pdfUrl.length > 0);
+		// CORRECCIÓN: Verificamos si n8n ya nos mandó el PDF directamente
+		// para NO activar el polling innecesariamente.
+		const pdfAlreadyArrived = data.pdfGenerated === true || (data.pdfUrl && data.pdfUrl.length > 0);
 
-    if (isGeneratingPlan && !state.isPolling && !pdfAlreadyArrived) {
-      console.log("El PDF aún no llega. Iniciando búsqueda en segundo plano...");
+		if (isGeneratingPlan && !state.isPolling && !pdfAlreadyArrived) {
+			console.log("El PDF aún no llega. Iniciando búsqueda en segundo plano...");
       startPDFPolling();
     } else if (pdfAlreadyArrived) {
       console.log("¡El PDF llegó directo con la respuesta! No hace falta buscarlo.");
