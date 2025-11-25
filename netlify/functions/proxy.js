@@ -32,14 +32,13 @@ app.use(
 app.use(express.json({ limit: "50mb" }));
 app.use(express.text({ type: "*/*", limit: "50mb" }));
 
-// --- MIDDLEWARE DE TIMEOUT (RESTAURADO Y PROTEGIDO) ---
+// --- MIDDLEWARE DE TIMEOUT (CORREGIDO PARA NETLIFY) ---
 app.use((req, res, next) => {
-	// Solo intentamos aumentar el timeout si el método existe (evita Error 500 en Netlify)
-	if (req.setTimeout) {
-		req.setTimeout(UPSTREAM_TIMEOUT_MS + 5000);
-	}
-	if (res.setTimeout) {
-		res.setTimeout(UPSTREAM_TIMEOUT_MS + 5000);
+	// CRÍTICO: En Netlify (Serverless) NO podemos tocar el timeout del socket porque no existe.
+	// Solo aplicamos esto si estamos corriendo en Local (Node.js tradicional).
+	if (!IS_NETLIFY) {
+		if (req.setTimeout) req.setTimeout(UPSTREAM_TIMEOUT_MS + 5000);
+		if (res.setTimeout) res.setTimeout(UPSTREAM_TIMEOUT_MS + 5000);
 	}
 	next();
 });
