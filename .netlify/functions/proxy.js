@@ -1,161 +1,113 @@
-const { createClient } = require("@supabase/supabase-js");
+import express from "express";
+import cors from "cors";
+import serverless from "serverless-http";
 
-// ==== CONFIGURACIÓN BÁSICA ====
+const app = express();
+
+// ==== CONFIG ====
 const N8N_BASE = "https://n8n.icc-e.org";
-const RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000; // 10 minutos
-const MAX_REQUESTS_PER_WINDOW = 50;
-const UPSTREAM_TIMEOUT_MS = 25000; // Netlify corta a los 10s (free) o 26s (pro).
+const UPSTREAM_TIMEOUT_MS = 600_000; // 10 Minutos
 
-// Inicializar Supabase
-const supabase = createClient(
-	process.env.SUPABASE_URL,
-	process.env.SUPABASE_SERVICE_ROLE_KEY
-);
-
-// ==== MAPA DE RUTAS (Lo que arreglamos hoy) ====
 const ROUTE_MAP = {
-	chat: "/webhook/mentor-chat-mode", // Chat principal
-	pdf_status: "/webhook/mentor-chat-mode-pdf", // Tu nueva ruta de polling
-	task: "/webhook/mentor-task", // (Opcional) Tareas
+	chat: "/webhook/mentor-chat-mode",
+	pdf_status: "/webhook/mentor-chat-mode-pdf",
+	task: "/webhook/mentor-task",
 };
+// ================
 
-// Headers CORS para permitir que tu frontend hable con esto
-const corsHeaders = {
-	"Access-Control-Allow-Origin": "*", // O pon tu dominio: 'https://alex-mentor.netlify.app'
-	"Access-Control-Allow-Headers": "Content-Type, Authorization",
-	"Access-Control-Allow-Methods": "POST, OPTIONS",
-};
+app.use(
+	cors({
+		origin: true,
+		methods: ["GET", "POST", "OPTIONS"],
+		allowedHeaders: ["Content-Type", "Authorization"],
+	})
+);
+app.use(express.json({ limit: "50mb" }));
+app.use(express.text({ type: "*/*", limit: "50mb" }));
 
-exports.handler = async (event, context) => {
-	// 0. Responder a OPTIONS (Pre-flight de CORS)
-	if (event.httpMethod === "OPTIONS") {
-		return { statusCode: 200, headers: corsHeaders, body: "" };
-	}
+// Middleware de Timeout
+app.use((req, res, next) => {
+	req.setTimeout(UPSTREAM_TIMEOUT_MS + 5000);
+	res.setTimeout(UPSTREAM_TIMEOUT_MS + 5000);
+	next();
+});
 
-	// 1. Solo permitir POST
-	if (event.httpMethod !== "POST") {
-		return {
-			statusCode: 405,
-			headers: corsHeaders,
-			body: "Method Not Allowed",
-		};
-	}
-
-	// 2. Obtener IP y Parsear Body
-	const clientIp =
-		event.headers["x-nf-client-connection-ip"] ||
-		event.headers["client-ip"] ||
-		"unknown";
-	let body;
-	try {
-		body = JSON.parse(event.body);
-	} catch (e) {
-		return { statusCode: 400, headers: corsHeaders, body: "Invalid JSON" };
-	}
-
-	// 3. RATE LIMITING (Tu lógica de Supabase intacta)
-	try {
-		const timeWindow = new Date(
-			Date.now() - RATE_LIMIT_WINDOW_MS
-		).toISOString();
-		const { count, error } = await supabase
-			.from("request_logs")
-			.select("*", { count: "exact", head: true })
-			.eq("ip_address", clientIp)
-			.gte("created_at", timeWindow);
-
-		if (error) throw error;
-
-		if (count >= MAX_REQUESTS_PER_WINDOW) {
-			return {
-				statusCode: 429,
-				headers: corsHeaders,
-				body: JSON.stringify({
-					error: "Límite de velocidad excedido. Espera unos minutos.",
-				}),
-			};
-		}
-
-		// Registrar petición (sin bloquear el hilo principal usamos await rápido)
-		await supabase.from("request_logs").insert({
-			ip_address: clientIp,
-			endpoint: body.action || "unknown",
-		});
-	} catch (err) {
-		console.error("Error Supabase:", err);
-		// Dejamos pasar si falla la DB para no tirar el servicio
-	}
-
-	// 4. ENRUTAMIENTO (La parte nueva)
-	let targetPath = "";
-
-	if (body.action && ROUTE_MAP[body.action]) {
-		targetPath = ROUTE_MAP[body.action];
-	} else {
-		// Fallback o error si la acción no existe
-		return {
-			statusCode: 400,
-			headers: corsHeaders,
-			body: JSON.stringify({ error: "Acción no válida" }),
-		};
-	}
-
-	const targetUrl = `${N8N_BASE}${targetPath}`;
-	console.log(`[PROXY] Redirigiendo ${body.action} -> ${targetUrl}`);
-
-	// 5. REENVIAR A N8N (Con timeout y limpieza de headers)
+async function forward({ path, method, headers, body }) {
 	const controller = new AbortController();
-	const timeoutId = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS);
+	const t = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS);
+
+	// Limpiamos headers
+	const {
+		host,
+		origin,
+		"content-length": cl,
+		"content-type": ct,
+		...safeHeaders
+	} = headers || {};
+	const url = `${N8N_BASE}${path}`;
+
+	console.log(`[PROXY] ⏳ A n8n: ${url}`);
 
 	try {
-		const response = await fetch(targetUrl, {
-			method: "POST",
-			headers: { "Content-Type": "application/json" }, // Header limpio forzado
-			body: JSON.stringify(body.payload || {}), // Solo enviamos el payload útil
+		const resp = await fetch(url, {
+			method,
+			headers: { ...safeHeaders, "Content-Type": "application/json" },
+			body: ["GET", "HEAD"].includes(method) ? undefined : body,
 			signal: controller.signal,
-		});
+		}).finally(() => clearTimeout(t));
 
-		clearTimeout(timeoutId);
-
-		// Intentamos leer JSON, si no, Texto (para evitar errores de conexión falsos)
-		const text = await response.text();
-		let data;
-		try {
-			data = JSON.parse(text);
-		} catch {
-			data = { response: text, reply: text }; // Fallback si n8n manda texto plano
-		}
-
-		if (!response.ok) {
-			throw new Error(`n8n respondió con ${response.status}: ${text}`);
-		}
-
-		return {
-			statusCode: 200,
-			headers: corsHeaders,
-			body: JSON.stringify(data),
-		};
+		const text = await resp.text();
+		return { status: resp.status, body: text };
 	} catch (error) {
-		clearTimeout(timeoutId);
-		console.error("Error Proxy:", error);
-
-		// Manejo específico de Timeout
 		if (error.name === "AbortError") {
 			return {
-				statusCode: 504,
-				headers: corsHeaders,
-				body: JSON.stringify({
-					error: "Timeout: n8n tardó demasiado en responder.",
-				}),
+				status: 504,
+				body: JSON.stringify({ error: "Timeout: Espera agotada (10 min)" }),
 			};
 		}
-
-		return {
-			statusCode: 500,
-			headers: corsHeaders,
-			body: JSON.stringify({
-				error: error.message || "Error interno del servidor",
-			}),
-		};
+		throw error;
 	}
-};
+}
+
+// === CORRECCIÓN AQUÍ: Usamos Regex /.*/ en lugar de "*" ===
+app.all(/.*/, async (req, res) => {
+	try {
+		// 1. Limpieza de URL para Netlify
+		const cleanUrl = req.originalUrl.replace("/.netlify/functions/proxy", "");
+
+		// 2. Lógica de enrutamiento
+		let targetPath = cleanUrl;
+		let bodyToSend = req.body;
+
+		if (req.body && req.body.action && ROUTE_MAP[req.body.action]) {
+			targetPath = ROUTE_MAP[req.body.action];
+			bodyToSend = req.body.payload;
+			if (typeof bodyToSend === "object")
+				bodyToSend = JSON.stringify(bodyToSend);
+		}
+
+		const upstream = await forward({
+			path: targetPath,
+			method: req.method,
+			headers: req.headers,
+			body: bodyToSend,
+		});
+
+		res.status(upstream.status).send(upstream.body);
+	} catch (err) {
+		console.error("[PROXY ERROR]", err);
+		res.status(500).json({ error: err.message });
+	}
+});
+
+// ==== LA MAGIA HÍBRIDA ====
+// Si NO estamos en Netlify, levantamos el servidor normal
+if (!process.env.NETLIFY && !process.env.AWS_LAMBDA_FUNCTION_VERSION) {
+	const PORT = 8787;
+	app.listen(PORT, () => {
+		console.log(`🚀 Proxy Local corriendo en http://localhost:${PORT}`);
+		console.log(`⏱️  Timeout: ${UPSTREAM_TIMEOUT_MS / 60000} min`);
+	});
+}
+
+export const handler = serverless(app);
