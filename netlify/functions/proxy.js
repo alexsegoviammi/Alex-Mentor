@@ -95,12 +95,20 @@ export const handler = async (event, context) => {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 26000); // 26s es el límite hard de Netlify Functions
 
-    const response = await fetch(targetUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body.payload),
-      signal: controller.signal
-    });
+  try {
+		// Usamos AXIOS en lugar de fetch
+		const response = await axios({
+			method: method,
+			url: url,
+			headers: { ...safeHeaders, "Content-Type": "application/json" },
+			data: ["GET", "HEAD"].includes(method) ? undefined : body,
+			signal: controller.signal,
+			// Importante: Evita que axios lance error en 404/500 (queremos pasar la respuesta tal cual)
+			validateStatus: () => true,
+			// Importante: Queremos el texto crudo para procesarlo igual que antes
+			responseType: "text",
+			transformResponse: [(data) => data],
+		});
 
     clearTimeout(timeoutId);
 
