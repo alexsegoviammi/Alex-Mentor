@@ -1,6 +1,7 @@
 import express from "express";
 import cors from "cors";
 import serverless from "serverless-http";
+import axios from "axios"; // <--- NUEVO IMPORT
 
 const app = express();
 
@@ -32,20 +33,17 @@ app.use(
 app.use(express.json({ limit: "50mb" }));
 app.use(express.text({ type: "*/*", limit: "50mb" }));
 
-// --- MIDDLEWARE DE TIMEOUT (CORREGIDO PARA NETLIFY) ---
+// --- MIDDLEWARE DE TIMEOUT ---
 app.use((req, res, next) => {
-	// CRÍTICO: En Netlify (Serverless) NO podemos tocar el timeout del socket porque no existe.
-	// Solo aplicamos esto si estamos corriendo en Local (Node.js tradicional).
 	if (!IS_NETLIFY) {
 		if (req.setTimeout) req.setTimeout(UPSTREAM_TIMEOUT_MS + 5000);
 		if (res.setTimeout) res.setTimeout(UPSTREAM_TIMEOUT_MS + 5000);
 	}
 	next();
 });
-// -----------------------------------------------------
 
+// --- FUNCIÓN FORWARD MODIFICADA CON AXIOS ---
 async function forward({ path, method, headers, body }) {
-	// Timeout interno para cortar la petición si n8n se cuelga
 	const controller = new AbortController();
 	const t = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS);
 
@@ -61,17 +59,32 @@ async function forward({ path, method, headers, body }) {
 	console.log(`[PROXY] ⏳ A n8n: ${url} (Timeout: ${UPSTREAM_TIMEOUT_MS}ms)`);
 
 	try {
-		const resp = await fetch(url, {
-			method,
+		// Usamos AXIOS en lugar de fetch
+		const response = await axios({
+			method: method,
+			url: url,
 			headers: { ...safeHeaders, "Content-Type": "application/json" },
-			body: ["GET", "HEAD"].includes(method) ? undefined : body,
+			data: ["GET", "HEAD"].includes(method) ? undefined : body,
 			signal: controller.signal,
-		}).finally(() => clearTimeout(t));
+			// Importante: Evita que axios lance error en 404/500 (queremos pasar la respuesta tal cual)
+			validateStatus: () => true,
+			// Importante: Queremos el texto crudo para procesarlo igual que antes
+			responseType: "text",
+			transformResponse: [(data) => data],
+		});
 
-		const text = await resp.text();
-		return { status: resp.status, body: text };
+		clearTimeout(t);
+
+		return { status: response.status, body: response.data };
 	} catch (error) {
-		if (error.name === "AbortError") {
+		clearTimeout(t);
+
+		// Manejo de errores específico de Axios
+		if (
+			axios.isCancel(error) ||
+			error.code === "ECONNABORTED" ||
+			error.name === "CanceledError"
+		) {
 			const msg = IS_NETLIFY
 				? "Timeout: Netlify cortó (límite alcanzado). Iniciando polling..."
 				: "Timeout: n8n tardó más de 10 minutos.";
@@ -81,6 +94,9 @@ async function forward({ path, method, headers, body }) {
 				body: JSON.stringify({ error: msg }),
 			};
 		}
+
+		// Otros errores de conexión
+		console.error("[PROXY AXIOS ERROR]", error.message);
 		throw error;
 	}
 }
@@ -88,13 +104,11 @@ async function forward({ path, method, headers, body }) {
 // Ruta Universal
 app.all(/.*/, async (req, res) => {
 	try {
-		// 1. Limpieza de URL
 		let cleanUrl = req.originalUrl.replace("/.netlify/functions/proxy", "");
 		if (!cleanUrl || cleanUrl.startsWith("?")) {
 			cleanUrl = "/" + cleanUrl;
 		}
 
-		// 2. Enrutamiento
 		let targetPath = cleanUrl;
 		let bodyToSend = req.body;
 
@@ -120,7 +134,6 @@ app.all(/.*/, async (req, res) => {
 	}
 });
 
-// ==== MODO LOCAL (Se activa solo en tu PC) ====
 if (!IS_NETLIFY) {
 	const PORT = 8787;
 	app.listen(PORT, () => {
