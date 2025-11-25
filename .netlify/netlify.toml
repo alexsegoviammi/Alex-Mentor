@@ -22,4 +22,11 @@ publishOrigin = "config"
 
 [build.processing.js]
 
-[build.services]
+[build.services][build]
+  functions = "netlify/functions"
+
+[[redirects]]
+  from = "/webhook/*"
+  to = "/.netlify/functions/proxy/:splat"
+  status = 200
+  force = true

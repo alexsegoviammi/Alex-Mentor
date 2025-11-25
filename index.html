@@ -1,83 +1,115 @@
 <!DOCTYPE html>
 <html lang="es">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>GobLab Gran Canaria - Tu Mentor IA para Emprender</title>
-  <link rel="stylesheet" href="css/style.css">
-</head>
-<body>
-<div class="app-container">
-  <div class="chat-panel">
-    <div class="chat-header">
-      <div class="mentor-info">
-        <h1>Alex - Tu Mentor IA para crear Planes de Negocio</h1>
-        <p>GobLab Gran Canaria - Laboratorio de Innovación Pública</p>
-      </div>
-      <div class="connection-status" id="connectionStatus">
-        <div class="status-dot" id="statusDot"></div>
-        <span id="statusText">Conectando...</span>
-      </div>
-    </div>
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<link
+			rel="icon"
+			href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🚀</text></svg>" />
+		<title>GobLab Gran Canaria - Tu Mentor IA para Emprender</title>
+		<link rel="stylesheet" href="css/style.css" />
+	</head>
+	<body>
+		<div class="app-container">
+			<div class="chat-panel">
+				<div class="chat-header">
+					<div class="mentor-info">
+						<h1>Alex - Tu Mentor IA para crear Planes de Negocio</h1>
+						<p>GobLab Gran Canaria - Laboratorio de Innovación Pública</p>
+					</div>
+					<div class="connection-status" id="connectionStatus">
+						<div class="status-dot" id="statusDot"></div>
+						<span id="statusText">Conectando...</span>
+					</div>
+				</div>
 
-    <div class="chat-messages" id="chatMessages">
-      <div class="welcome-screen" id="welcomeScreen">
-        <div class="welcome-icon">🚀</div>
-        <h1 class="welcome-title">¡Hola! Soy Alex</h1>
-        <p class="welcome-subtitle">
-          Tu mentor de inteligencia artificial del GobLab Gran Canaria. Te ayudo a crear un plan de negocio profesional de forma conversacional y sencilla.
-        </p>
-        <button class="start-button" id="startBtn">Comenzar mi plan de negocio</button>
-      </div>
-    </div>
+				<div class="chat-messages" id="chatMessages">
+					<div class="welcome-screen" id="welcomeScreen">
+						<div class="welcome-icon">🚀</div>
+						<h1 class="welcome-title">¡Hola! Soy Alex</h1>
+						<p class="welcome-subtitle">
+							Tu mentor de inteligencia artificial del GobLab Gran Canaria. Te
+							ayudo a crear un plan de negocio profesional de forma
+							conversacional y sencilla.
+						</p>
+						<button class="start-button" id="startBtn">
+							Comenzar mi plan de negocio
+						</button>
+					</div>
+				</div>
 
-    <div class="chat-input">
-      <div class="input-container">
-        <textarea class="input-field" id="messageInput" placeholder="Escribe tu respuesta aquí..." disabled></textarea>
-        <button class="send-button" id="sendBtn" disabled>➤</button>
-      </div>
-    </div>
-  </div>
+				<div class="chat-input">
+					<div class="input-container">
+						<textarea
+							class="input-field"
+							id="messageInput"
+							placeholder="Escribe tu respuesta aquí..."
+							disabled></textarea>
+						<button class="send-button" id="sendBtn" disabled>➤</button>
+					</div>
+				</div>
+			</div>
 
-  <div class="progress-panel">
-    <div class="progress-header">
-      <div class="progress-title">Tu Plan de Negocio</div>
-      <div class="progress-subtitle">Creándose automáticamente</div>
-    </div>
+			<div class="progress-panel">
+				<div class="progress-header">
+					<div class="progress-title">Tu Plan de Negocio</div>
+					<div class="progress-subtitle">Creándose automáticamente</div>
+				</div>
 
-    <div class="plan-preview" id="planPreview">
-      <div class="plan-section" id="section-name">
-        <div class="section-title"><div class="section-status">1</div>Tu Información</div>
-        <div class="section-content">Esperando tu nombre...</div>
-      </div>
-      <div class="plan-section" id="section-idea">
-        <div class="section-title"><div class="section-status">2</div>Tu Idea de Negocio</div>
-        <div class="section-content">Pendiente de completar...</div>
-      </div>
-      <div class="plan-section" id="section-problem">
-        <div class="section-title"><div class="section-status">3</div>Problema que Resuelves</div>
-        <div class="section-content">Pendiente de completar...</div>
-      </div>
-      <div class="plan-section" id="section-customer">
-        <div class="section-title"><div class="section-status">4</div>Cliente Objetivo</div>
-        <div class="section-content">Pendiente de completar...</div>
-      </div>
-      <div class="plan-section" id="section-revenue">
-        <div class="section-title"><div class="section-status">5</div>Modelo de Ingresos</div>
-        <div class="section-content">Pendiente de completar...</div>
-      </div>
-      <div class="plan-section" id="section-research">
-        <div class="section-title"><div class="section-status">6</div>Investigación de Mercado</div>
-        <div class="section-content">Análisis IA pendiente...</div>
-      </div>
-      <div class="plan-section" id="section-final">
-        <div class="section-title"><div class="section-status">7</div>Plan Completo</div>
-        <div class="section-content">Generación final pendiente...</div>
-      </div>
-    </div>
-  </div>
-</div>
+				<div class="plan-preview" id="planPreview">
+					<div class="plan-section" id="section-name">
+						<div class="section-title">
+							<div class="section-status">1</div>
+							Tu Información
+						</div>
+						<div class="section-content">Esperando tu nombre...</div>
+					</div>
+					<div class="plan-section" id="section-idea">
+						<div class="section-title">
+							<div class="section-status">2</div>
+							Tu Idea de Negocio
+						</div>
+						<div class="section-content">Pendiente de completar...</div>
+					</div>
+					<div class="plan-section" id="section-problem">
+						<div class="section-title">
+							<div class="section-status">3</div>
+							Problema que Resuelves
+						</div>
+						<div class="section-content">Pendiente de completar...</div>
+					</div>
+					<div class="plan-section" id="section-customer">
+						<div class="section-title">
+							<div class="section-status">4</div>
+							Cliente Objetivo
+						</div>
+						<div class="section-content">Pendiente de completar...</div>
+					</div>
+					<div class="plan-section" id="section-revenue">
+						<div class="section-title">
+							<div class="section-status">5</div>
+							Modelo de Ingresos
+						</div>
+						<div class="section-content">Pendiente de completar...</div>
+					</div>
+					<div class="plan-section" id="section-research">
+						<div class="section-title">
+							<div class="section-status">6</div>
+							Investigación de Mercado
+						</div>
+						<div class="section-content">Análisis IA pendiente...</div>
+					</div>
+					<div class="plan-section" id="section-final">
+						<div class="section-title">
+							<div class="section-status">7</div>
+							Plan Completo
+						</div>
+						<div class="section-content">Generación final pendiente...</div>
+					</div>
+				</div>
+			</div>
+		</div>
 
-<script src="js/main.js" type="module"></script>
-</body>
+		<script src="js/main.js" type="module"></script>
+	</body>
 </html>
