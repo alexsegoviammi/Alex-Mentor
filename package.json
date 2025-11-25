@@ -2,7 +2,7 @@
 	"type": "module",
 	"dependencies": {
 		"@supabase/supabase-js": "^2.84.0",
-		"axios": "^1.7.7",
+		"axios": "^1.13.2",
 		"cors": "^2.8.5",
 		"express": "^5.1.0",
 		"serverless-http": "^4.0.0"
