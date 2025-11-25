@@ -6,7 +6,9 @@ const app = express();
 
 // ==== CONFIG ====
 const N8N_BASE = "https://n8n.icc-e.org";
-const UPSTREAM_TIMEOUT_MS = 600_000; // 10 Minutos
+// Nota: En Netlify Free el límite real es 10 segundos.
+// El polling en el frontend es el que nos salvará si tarda más.
+const UPSTREAM_TIMEOUT_MS = 25000;
 
 const ROUTE_MAP = {
 	chat: "/webhook/mentor-chat-mode",
@@ -25,18 +27,13 @@ app.use(
 app.use(express.json({ limit: "50mb" }));
 app.use(express.text({ type: "*/*", limit: "50mb" }));
 
-// Middleware de Timeout
-app.use((req, res, next) => {
-	req.setTimeout(UPSTREAM_TIMEOUT_MS + 5000);
-	res.setTimeout(UPSTREAM_TIMEOUT_MS + 5000);
-	next();
-});
+// --- ELIMINADO: Middleware de req.setTimeout que causaba el Error 500 ---
 
 async function forward({ path, method, headers, body }) {
+	// Timeout interno para cortar la petición si n8n se cuelga
 	const controller = new AbortController();
 	const t = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS);
 
-	// Limpiamos headers
 	const {
 		host,
 		origin,
@@ -44,8 +41,8 @@ async function forward({ path, method, headers, body }) {
 		"content-type": ct,
 		...safeHeaders
 	} = headers || {};
-	const url = `${N8N_BASE}${path}`;
 
+	const url = `${N8N_BASE}${path}`;
 	console.log(`[PROXY] ⏳ A n8n: ${url}`);
 
 	try {
@@ -62,28 +59,34 @@ async function forward({ path, method, headers, body }) {
 		if (error.name === "AbortError") {
 			return {
 				status: 504,
-				body: JSON.stringify({ error: "Timeout: Espera agotada (10 min)" }),
+				body: JSON.stringify({
+					error: "Timeout: Netlify cortó la conexión (límite 10s/26s).",
+				}),
 			};
 		}
 		throw error;
 	}
 }
 
-// === CORRECCIÓN AQUÍ: Usamos Regex /.*/ en lugar de "*" ===
+// Ruta Universal con Regex corregido
 app.all(/.*/, async (req, res) => {
 	try {
-		// 1. Limpieza de URL para Netlify
-		const cleanUrl = req.originalUrl.replace("/.netlify/functions/proxy", "");
+		// 1. Limpieza de URL
+		let cleanUrl = req.originalUrl.replace("/.netlify/functions/proxy", "");
+		if (!cleanUrl || cleanUrl.startsWith("?")) {
+			cleanUrl = "/" + cleanUrl;
+		}
 
-		// 2. Lógica de enrutamiento
+		// 2. Enrutamiento
 		let targetPath = cleanUrl;
 		let bodyToSend = req.body;
 
 		if (req.body && req.body.action && ROUTE_MAP[req.body.action]) {
 			targetPath = ROUTE_MAP[req.body.action];
 			bodyToSend = req.body.payload;
-			if (typeof bodyToSend === "object")
+			if (typeof bodyToSend === "object") {
 				bodyToSend = JSON.stringify(bodyToSend);
+			}
 		}
 
 		const upstream = await forward({
@@ -99,15 +102,5 @@ app.all(/.*/, async (req, res) => {
 		res.status(500).json({ error: err.message });
 	}
 });
-
-// ==== LA MAGIA HÍBRIDA ====
-// Si NO estamos en Netlify, levantamos el servidor normal
-if (!process.env.NETLIFY && !process.env.AWS_LAMBDA_FUNCTION_VERSION) {
-	const PORT = 8787;
-	app.listen(PORT, () => {
-		console.log(`🚀 Proxy Local corriendo en http://localhost:${PORT}`);
-		console.log(`⏱️  Timeout: ${UPSTREAM_TIMEOUT_MS / 60000} min`);
-	});
-}
 
 export const handler = serverless(app);

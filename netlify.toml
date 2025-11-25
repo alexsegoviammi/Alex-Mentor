@@ -3,6 +3,6 @@
 
 [[redirects]]
   from = "/webhook/*"
-  to = "/.netlify/functions/proxy/:splat"
+  to = "/netlify/functions/proxy/:splat"
   status = 200
   force = true
