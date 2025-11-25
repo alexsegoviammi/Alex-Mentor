@@ -1,132 +1,124 @@
-import express from "express";
-import cors from "cors";
-import serverless from "serverless-http";
+import fetch from "node-fetch";
+import { createClient } from "@supabase/supabase-js";
 
-const app = express();
+// --- CONFIGURACIÓN DE SEGURIDAD ---
+// 60 peticiones cada 24 horas por IP (suficiente para 1 plan completo)
+const RATE_LIMIT_WINDOW_MS = 24 * 60 * 60 * 1000;
+const MAX_REQUESTS_PER_WINDOW = 60;
 
-// ==== CONFIGURACIÓN DINÁMICA ====
-const N8N_BASE = "https://n8n.icc-e.org";
-
-// Detectamos si estamos en Netlify o en Local
-const IS_NETLIFY = !!(
-	process.env.NETLIFY || process.env.AWS_LAMBDA_FUNCTION_VERSION
+// Inicializar Supabase con variables de entorno de Netlify
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
-// Tiempo de espera: 25 segundos en Nube / 10 Minutos en Local
-const UPSTREAM_TIMEOUT_MS = IS_NETLIFY ? 25000 : 600_000;
-
-const ROUTE_MAP = {
-	chat: "/webhook/mentor-chat-mode",
-	pdf_status: "/webhook/mentor-chat-mode-pdf",
-	task: "/webhook/mentor-task",
+// Mapa de Webhooks
+const N8N_WEBHOOKS = {
+  chat: process.env.N8N_CHAT_WEBHOOK,
+  pdf_status: process.env.N8N_PDF_WEBHOOK,
 };
-// ================================
 
-app.use(
-	cors({
-		origin: true,
-		methods: ["GET", "POST", "OPTIONS"],
-		allowedHeaders: ["Content-Type", "Authorization"],
-	})
-);
-app.use(express.json({ limit: "50mb" }));
-app.use(express.text({ type: "*/*", limit: "50mb" }));
+export const handler = async (event, context) => {
+  // 1. Manejo de CORS (Preflight OPTIONS)
+  const headers = {
+    'Access-Control-Allow-Origin': '*', 
+    'Access-Control-Allow-Headers': 'Content-Type',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS'
+  };
 
-// --- MIDDLEWARE DE TIMEOUT (CORREGIDO PARA NETLIFY) ---
-app.use((req, res, next) => {
-	// CRÍTICO: En Netlify (Serverless) NO podemos tocar el timeout del socket porque no existe.
-	// Solo aplicamos esto si estamos corriendo en Local (Node.js tradicional).
-	if (!IS_NETLIFY) {
-		if (req.setTimeout) req.setTimeout(UPSTREAM_TIMEOUT_MS + 5000);
-		if (res.setTimeout) res.setTimeout(UPSTREAM_TIMEOUT_MS + 5000);
-	}
-	next();
-});
-// -----------------------------------------------------
+  if (event.httpMethod === 'OPTIONS') {
+    return { statusCode: 200, headers, body: '' };
+  }
 
-async function forward({ path, method, headers, body }) {
-	// Timeout interno para cortar la petición si n8n se cuelga
-	const controller = new AbortController();
-	const t = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS);
+  if (event.httpMethod !== 'POST') {
+    return { statusCode: 405, headers, body: 'Method Not Allowed' };
+  }
 
-	const {
-		host,
-		origin,
-		"content-length": cl,
-		"content-type": ct,
-		...safeHeaders
-	} = headers || {};
+  // 2. Obtener IP del cliente (Header específico de Netlify)
+  const clientIp = event.headers['x-nf-client-connection-ip'] || event.headers['client-ip'] || 'unknown';
 
-	const url = `${N8N_BASE}${path}`;
-	console.log(`[PROXY] ⏳ A n8n: ${url} (Timeout: ${UPSTREAM_TIMEOUT_MS}ms)`);
+  // 3. Parsear cuerpo de la petición
+  let body;
+  try {
+    body = JSON.parse(event.body);
+  } catch (e) {
+    return { statusCode: 400, headers, body: 'Invalid JSON' };
+  }
 
-	try {
-		const resp = await fetch(url, {
-			method,
-			headers: { ...safeHeaders, "Content-Type": "application/json" },
-			body: ["GET", "HEAD"].includes(method) ? undefined : body,
-			signal: controller.signal,
-		}).finally(() => clearTimeout(t));
+  // 4. RATE LIMITING (Lógica de Supabase restaurada)
+  try {
+    const timeWindow = new Date(Date.now() - RATE_LIMIT_WINDOW_MS).toISOString();
 
-		const text = await resp.text();
-		return { status: resp.status, body: text };
-	} catch (error) {
-		if (error.name === "AbortError") {
-			const msg = IS_NETLIFY
-				? "Timeout: Netlify cortó (límite alcanzado). Iniciando polling..."
-				: "Timeout: n8n tardó más de 10 minutos.";
+    // Consultar logs recientes
+    const { count, error } = await supabase
+      .from('request_logs')
+      .select('*', { count: 'exact', head: true })
+      .eq('ip_address', clientIp)
+      .gte('created_at', timeWindow);
 
-			return {
-				status: 504,
-				body: JSON.stringify({ error: msg }),
-			};
-		}
-		throw error;
-	}
-}
+    if (error) throw error;
 
-// Ruta Universal
-app.all(/.*/, async (req, res) => {
-	try {
-		// 1. Limpieza de URL
-		let cleanUrl = req.originalUrl.replace("/.netlify/functions/proxy", "");
-		if (!cleanUrl || cleanUrl.startsWith("?")) {
-			cleanUrl = "/" + cleanUrl;
-		}
+    // Bloquear si excede el límite
+    if (count >= MAX_REQUESTS_PER_WINDOW) {
+      console.warn(`Bloqueo Rate Limit: IP ${clientIp}`);
+      return {
+        statusCode: 429,
+        headers,
+        body: JSON.stringify({
+          error: 'Has alcanzado el límite diario de uso (1 Plan/día). Por favor intenta mañana.'
+        })
+      };
+    }
 
-		// 2. Enrutamiento
-		let targetPath = cleanUrl;
-		let bodyToSend = req.body;
+    // Registrar nueva petición
+    await supabase.from('request_logs').insert({
+      ip_address: clientIp,
+      endpoint: body.action || 'unknown'
+    });
 
-		if (req.body && req.body.action && ROUTE_MAP[req.body.action]) {
-			targetPath = ROUTE_MAP[req.body.action];
-			bodyToSend = req.body.payload;
-			if (typeof bodyToSend === "object") {
-				bodyToSend = JSON.stringify(bodyToSend);
-			}
-		}
+  } catch (err) {
+    console.error('Error en Rate Limiting (Supabase):', err);
+    // Fail-open: Si falla la BD, dejamos pasar la petición para no interrumpir el servicio
+  }
 
-		const upstream = await forward({
-			path: targetPath,
-			method: req.method,
-			headers: req.headers,
-			body: bodyToSend,
-		});
+  // 5. VALIDAR Y ENRUTAR A N8N
+  const action = body.action;
+  const targetUrl = N8N_WEBHOOKS[action];
 
-		res.status(upstream.status).send(upstream.body);
-	} catch (err) {
-		console.error("[PROXY ERROR]", err);
-		res.status(500).json({ error: err.message });
-	}
-});
+  if (!targetUrl) {
+    return { statusCode: 400, headers, body: `Acción no válida: ${action}` };
+  }
 
-// ==== MODO LOCAL (Se activa solo en tu PC) ====
-if (!IS_NETLIFY) {
-	const PORT = 8787;
-	app.listen(PORT, () => {
-		console.log(`🚀 Proxy Local corriendo en http://localhost:${PORT}`);
-		console.log(`⏱️  Modo Local: Timeout extendido a 10 minutos.`);
-	});
-}
+  // 6. LLAMADA A N8N
+  try {
+    // Usamos AbortController para el timeout
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 26000); // 26s es el límite hard de Netlify Functions
 
-export const handler = serverless(app);
+    const response = await fetch(targetUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body.payload),
+      signal: controller.signal
+    });
+
+    clearTimeout(timeoutId);
+
+    const responseText = await response.text();
+
+    return {
+      statusCode: response.status,
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: responseText
+    };
+
+  } catch (error) {
+    console.error('Error upstream n8n:', error);
+    const msg = error.name === 'AbortError' ? 'Timeout: La IA está tardando, intenta verificar estado en unos segundos.' : 'Error de comunicación con el Mentor IA';
+    return {
+      statusCode: 504,
+      headers,
+      body: JSON.stringify({ error: msg })
+    };
+  }
+};
