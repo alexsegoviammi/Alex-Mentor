@@ -70,21 +70,40 @@ async function forward({ path, method, headers, body }) {
 }
 
 // === CORRECCIÓN AQUÍ: Usamos Regex /.*/ en lugar de "*" ===
+// === CORRECCIÓN AQUÍ: Usamos Regex /.*/ en lugar de "*" ===
 app.all(/.*/, async (req, res) => {
 	try {
 		// 1. Limpieza de URL para Netlify
-		const cleanUrl = req.originalUrl.replace("/.netlify/functions/proxy", "");
+		// Quitamos el prefijo de la función serverless para dejar la ruta limpia
+		let cleanUrl = req.originalUrl.replace("/.netlify/functions/proxy", "");
+
+		// CORRECCIÓN CRÍTICA: Si el reemplazo deja la url vacía o solo con query params,
+		// aseguramos que al menos sea una barra "/" o la ruta que esperamos.
+		if (!cleanUrl || cleanUrl.startsWith("?")) {
+			cleanUrl = "/" + cleanUrl;
+		}
 
 		// 2. Lógica de enrutamiento
 		let targetPath = cleanUrl;
 		let bodyToSend = req.body;
 
+		// Si el cuerpo trae una 'action', el ROUTE_MAP tiene prioridad absoluta sobre la URL
 		if (req.body && req.body.action && ROUTE_MAP[req.body.action]) {
-			targetPath = ROUTE_MAP[req.body.action];
+			targetPath = ROUTE_MAP[req.body.action]; // Esto sobreescribe targetPath con la ruta correcta de n8n
 			bodyToSend = req.body.payload;
-			if (typeof bodyToSend === "object")
+
+			// Aseguramos que el payload sea string
+			if (typeof bodyToSend === "object") {
 				bodyToSend = JSON.stringify(bodyToSend);
+			}
 		}
+
+		// Log para depuración (Verás esto en los logs de Netlify o consola local)
+		console.log(
+			`[ROUTER] Action: ${
+				req.body?.action || "N/A"
+			} | Path final: ${targetPath}`
+		);
 
 		const upstream = await forward({
 			path: targetPath,
@@ -99,7 +118,6 @@ app.all(/.*/, async (req, res) => {
 		res.status(500).json({ error: err.message });
 	}
 });
-
 // ==== LA MAGIA HÍBRIDA ====
 // Si NO estamos en Netlify, levantamos el servidor normal
 if (!process.env.NETLIFY && !process.env.AWS_LAMBDA_FUNCTION_VERSION) {
