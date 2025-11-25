@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import axios from "axios"; // <--- NUEVO IMPORT
 
 // --- CONFIGURACIÓN DE SEGURIDAD ---
 // 60 peticiones cada 24 horas por IP (suficiente para 1 plan completo)
