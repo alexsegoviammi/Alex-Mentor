@@ -1,7 +1,7 @@
 import express from "express";
 import cors from "cors";
 import serverless from "serverless-http";
-import axios from "axios";
+// import axios from "axios"; <--- ELIMINADO (Usamos fetch nativo)
 import { createClient } from "@supabase/supabase-js";
 
 const app = express();
@@ -111,7 +111,7 @@ const rateLimitMiddleware = async (req, res, next) => {
 };
 
 // ==========================================
-// 3. LÓGICA DE REENVÍO (AXIOS)
+// 3. LÓGICA DE REENVÍO (NATIVE FETCH)
 // ==========================================
 async function forward({ path, method, headers, body }) {
 	const controller = new AbortController();
@@ -129,28 +129,24 @@ async function forward({ path, method, headers, body }) {
 	console.log(`[PROXY] ⏳ A n8n: ${url} (Timeout: ${UPSTREAM_TIMEOUT_MS}ms)`);
 
 	try {
-		const response = await axios({
+		// USAMOS FETCH NATIVO (Node 18+)
+		const response = await fetch(url, {
 			method: method,
-			url: url,
 			headers: { ...safeHeaders, "Content-Type": "application/json" },
-			data: ["GET", "HEAD"].includes(method) ? undefined : body,
+			body: ["GET", "HEAD"].includes(method) ? undefined : body,
 			signal: controller.signal,
-			validateStatus: () => true, // No lanzar error en 404/500 de n8n
-			responseType: "text", // Texto crudo para evitar errores de parseo
-			transformResponse: [(data) => data],
 		});
 
 		clearTimeout(t);
-		return { status: response.status, body: response.data };
+
+		// Obtenemos el texto crudo
+		const text = await response.text();
+		return { status: response.status, body: text };
 	} catch (error) {
 		clearTimeout(t);
 
-		// Manejo de Timeout específico de Axios
-		if (
-			axios.isCancel(error) ||
-			error.code === "ECONNABORTED" ||
-			error.name === "CanceledError"
-		) {
+		// Manejo de Timeout nativo (AbortError)
+		if (error.name === "AbortError") {
 			const msg = IS_NETLIFY
 				? "Timeout: Netlify cortó (límite alcanzado). Iniciando polling..."
 				: "Timeout: n8n tardó más de 10 minutos.";
