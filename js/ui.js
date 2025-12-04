@@ -146,3 +146,24 @@ export function showPDFReadyMessage() {
     ]
   );
 }
+// En ui.js
+
+export function updateStartButtonState(status) {
+  // Asegúrate de importar 'elements' al principio de ui.js si no lo has hecho
+  
+  if (status === 'loading') {
+    elements.startBtn.disabled = true;
+    elements.startBtn.textContent = 'Conectando... ⏳';
+    elements.startBtn.style.opacity = '0.7';
+    elements.startBtn.style.cursor = 'wait';
+  } else if (status === 'ready') {
+    elements.startBtn.disabled = false;
+    elements.startBtn.textContent = 'Comenzar mi plan de negocio 🚀';
+    elements.startBtn.style.opacity = '1';
+    elements.startBtn.style.cursor = 'pointer';
+  } else if (status === 'error') {
+    elements.startBtn.disabled = false; // Permitimos click para reintentar
+    elements.startBtn.textContent = 'Sin conexión (Click para reintentar) 🔄';
+    elements.startBtn.style.backgroundColor = '#ff6b6b'; // Opcional: rojo para error
+  }
+}

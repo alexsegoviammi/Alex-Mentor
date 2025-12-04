@@ -4,16 +4,37 @@ import { elements } from './dom.js';
 import * as ui from './ui.js';
 import * as api from '../api/api.js';
 
+// En main.js
+
 async function initializeApp() {
-	console.log("Alex MVP inicializado", { userId: state.userId, sessionId: state.sessionId });
-	const connected = await api.checkConnection();
-	ui.setConnectionStatus(connected, connected ? "Conectado" : "Error de conexión");
+  console.log("Alex MVP inicializado", { userId: state.userId, sessionId: state.sessionId });
+  
+  // 1. Poner botón en modo "Cargando" inmediatamente
+  ui.updateStartButtonState('loading');
+
+  // 2. Intentar conectar
+  const connected = await api.checkConnection();
+  
+  // 3. Actualizar estado global y UI
+  ui.setConnectionStatus(connected, connected ? "Conectado" : "Error de conexión");
+  
+  if (connected) {
+    // Si conecta, habilitamos el botón
+    ui.updateStartButtonState('ready');
+  } else {
+    // Si falla, mostramos estado de error (el usuario puede hacer click para reintentar)
+    ui.updateStartButtonState('error');
+  }
 }
 
 function startConversation() {
+  // Si no está conectado, intentamos reconectar
   if (!state.isConnected) {
-    ui.showError('No hay conexión con el servidor. Reintentando...');
-    initializeApp();
+    ui.updateStartButtonState('loading'); // Visual feedback de que está reintentando
+    ui.showError('Reintentando conexión con el servidor...');
+    
+    // Pequeño timeout para que se vea el efecto de carga si es muy rápido
+    setTimeout(() => initializeApp(), 500);
     return;
   }
 
