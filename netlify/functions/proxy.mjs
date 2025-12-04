@@ -20,8 +20,6 @@ const IS_NETLIFY = !!(
 const UPSTREAM_TIMEOUT_MS = IS_NETLIFY ? 25000 : 600_000;
 
 // Rate Limiting: 60 peticiones cada 24h
-const RATE_LIMIT_WINDOW_MS = 24 * 60 * 60 * 1000;
-const MAX_REQUESTS_PER_WINDOW = 60;
 
 // Mapa de Rutas
 const ROUTE_MAP = {
