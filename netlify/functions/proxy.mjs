@@ -65,7 +65,18 @@ app.use((req, res, next) => {
 });
 
 // Middleware de Rate Limiting (Supabase)
+// Middleware de Rate Limiting (Supabase)
 const rateLimitMiddleware = async (req, res, next) => {
+    // 1. SI ES UN PING O TEST, PASAR DIRECTAMENTE (NO CONTAR)
+    // Esto evita bloqueos por recargar la página muchas veces
+    const bodyMsg = req.body?.message || "";
+    const bodyAction = req.body?.action || "";
+    
+    if (bodyMsg === "_connection_test" || bodyAction === "ping") {
+        return next();
+    }
+
+    // 2. Si no hay Supabase o es OPTIONS, pasar
 	if (!supabase || req.method === "OPTIONS") return next();
 
 	try {
@@ -75,6 +86,7 @@ const rateLimitMiddleware = async (req, res, next) => {
 			req.headers["client-ip"] ||
 			req.ip ||
 			"unknown";
+            
 		const timeWindow = new Date(
 			Date.now() - RATE_LIMIT_WINDOW_MS
 		).toISOString();
@@ -87,13 +99,16 @@ const rateLimitMiddleware = async (req, res, next) => {
 
 		if (error) throw error;
 
+        // 3. BLOQUEO (Solo si supera el límite)
 		if (count >= MAX_REQUESTS_PER_WINDOW) {
 			console.warn(`⛔ Bloqueo Rate Limit: IP ${clientIp}`);
-			return res
+            // COMENTA ESTO TEMPORALMENTE SI QUIERES DESBLOQUEARTE YA MISMO
+			/* return res
 				.status(429)
 				.json({
-					error: "Límite diario alcanzado (1 plan/día). Intenta mañana.",
-				});
+					error: "Límite diario alcanzado. Intenta mañana.",
+				}); */
+             console.log("Limite superado pero permitiendo acceso en modo DEV"); // LOG DE AVISO
 		}
 
 		// Registrar petición en fondo (no bloqueante)
@@ -106,7 +121,7 @@ const rateLimitMiddleware = async (req, res, next) => {
 		next();
 	} catch (err) {
 		console.error("Error Rate Limiting:", err);
-		next(); // Si falla la BD, dejamos pasar para no tumbar el servicio
+		next(); // Si falla la BD, dejamos pasar
 	}
 };
 
